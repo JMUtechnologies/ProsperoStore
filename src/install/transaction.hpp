@@ -52,6 +52,8 @@ struct Environment
     // <registered>/appmeta/<TITLEID>). They are refreshed after an update, so a
     // new icon, name or background reaches the home screen.
     std::string registered = "/user";
+    // Persistent app data, separate from installed folders; redirected by host tests.
+    std::string data = "/data";
     // The console limits how fast an app may write to its storage, so the
     // heavy file work is given to another process when these are set. Each
     // returns 1 when done, 0 when it failed and -1 when it could not start

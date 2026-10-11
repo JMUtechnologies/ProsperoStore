@@ -108,6 +108,30 @@ It is an alpha; the current version is the newest one on the
 The store keeps its own data in `/data/prosperostore` (settings, cache, install records and
 logs), outside the app's folder, so updates keep it.
 
+### Updating older ProsperoEden installations
+
+For ProsperoEden (`PPSA99008`) installations that still keep personal game files
+inside `assets/`, Store moves the known legacy folders (`roms`, `keys`,
+`firmware`, `updates`, `mods`, `ryujinx`, and `save-import`) to
+`/data/prosperoeden` during an update. Saves and settings are left unchanged.
+The migration resumes through the update journal if it is interrupted.
+
+Store refuses the update before replacing the app if a destination holds files,
+a custom game-files folder is selected, settings cannot be read safely, or the
+migration would cross drives. Resolve the reported conflict or move the files
+to the chosen folder first.
+
+An update made with ProsperoStore 1.000.050 or older left those folders in the
+store's own `prosperostore/previous/PPSA99008/assets`, where ProsperoEden does
+not look. The next update of ProsperoEden moves them to `/data/prosperoeden` by
+the same rules, before that previous folder is replaced. If the same folder
+holds files both there and in the installed app, the update is refused and
+names both places: keep one of them, then update again.
+
+See [migration validation](docs/eden-migration-validation.md) for automated checks,
+controlled testing on an original/phat PS5 with firmware 4.50, and the reproducible
+console test harness.
+
 ## Controls
 
 | Action | Controller | Keyboard |
