@@ -543,11 +543,28 @@ Result apply(const Environment &environment, const Request &request, net::Contro
         return fail("ProsperoStore isn't installed in this location");
     if (update && id == "PPSA99008")
     {
-        if (eden_legacy_data(paths.keep))
-            return fail("An earlier ProsperoEden backup still holds game files at " + paths.keep +
-                        "/assets. Recover them before updating again.");
-        if (!migrate_eden(environment, id, paths.target, false, result))
+        // An update made by an earlier store left the game files in the store's previous
+        // folder, where ProsperoEden never looks. They are moved out by the same rules,
+        // before this update replaces that folder.
+        const bool stranded = eden_legacy_data(paths.keep);
+        if (stranded)
+            for (const auto *folder : kEdenFolders)
+            {
+                const auto kept = paths.keep + "/assets/" + folder,
+                           current = paths.target + "/assets/" + folder;
+                // The same folder in both places: neither is merged into the other.
+                if (kind(kept) != Kind::absent && !empty_directory(kept) &&
+                    kind(current) != Kind::absent && !empty_directory(current))
+                    return fail("ProsperoEden's game files are in two places: " + kept + " and " +
+                                current + ". Keep one of them, then update again.");
+            }
+        if ((stranded && !migrate_eden(environment, id, paths.keep, false, result)) ||
+            !migrate_eden(environment, id, paths.target, false, result))
             return fail(result.error);
+        // Each folder is one rename, and a folder already moved is skipped the next time,
+        // so an interruption here needs no journal: the next update finishes it.
+        if (stranded && !migrate_eden(environment, id, paths.keep, true, result))
+            return result.interrupted ? result : fail(result.error);
     }
     result.operation = update ? "update" : "install";
     if (kind(request.location) != Kind::directory)

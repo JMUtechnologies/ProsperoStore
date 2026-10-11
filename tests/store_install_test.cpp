@@ -710,6 +710,59 @@ void check_eden_migration(const fs::path &base)
             assert(get(f.work / "previous" / id / "assets/roms/only-copy.nsp") ==
                    "older user data");
     }
+    // Game files an earlier store's update left in its previous folder are moved out by
+    // the same rules, alone or beside the ones still in the app's folder.
+    for (const bool both : {false, true})
+    {
+        Fixture f(base, both ? "eden-stranded-both" : "eden-stranded");
+        if (both)
+            seed(f);
+        else
+            assert(f.apply(request(f, "01.000.080")).ok);
+        const auto data = fs::path(f.environment.data) / "prosperoeden";
+        if (both)
+        {
+            // The app's folder keeps everything but its games; those are the stranded ones.
+            fs::remove_all(f.location / id / "assets/roms");
+        }
+        fs::create_directories(f.work / "previous" / id / "assets/roms");
+        put(f.work / "previous" / id / "assets/roms/only-copy.nsp", "older user data");
+        const auto result = f.apply(request(f, "01.000.100"));
+        assert(result.ok && f.settled());
+        assert(get(data / "roms/only-copy.nsp") == "older user data");
+        assert(!fs::exists(f.work / "previous" / id / "assets/roms"));
+        if (both)
+        {
+            assert(get(data / "keys/personal.bin") == "keys data");
+            assert(get(data / "user/save.bin") == "keep my save");
+        }
+        // The next update finds nothing left to move.
+        assert(f.apply(request(f, "01.000.110")).ok);
+        assert(get(data / "roms/only-copy.nsp") == "older user data");
+    }
+    // Stopped between two of the stranded folders: nothing is lost, and the update that
+    // is asked for again finishes the move.
+    {
+        Fixture f(base, "eden-stranded-cut");
+        assert(f.apply(request(f, "01.000.080")).ok);
+        const auto data = fs::path(f.environment.data) / "prosperoeden";
+        for (const auto *folder : {"keys", "roms"})
+        {
+            fs::create_directories(f.work / "previous" / id / "assets" / folder);
+            put(f.work / "previous" / id / "assets" / folder / "personal.bin", "kept");
+        }
+        f.environment.interrupt = [](const char *step)
+        { return std::string(step) == "eden-moved-keys"; };
+        const auto interrupted = f.apply(request(f, "01.000.100"));
+        assert(interrupted.interrupted && !interrupted.ok);
+        assert(get(data / "keys/personal.bin") == "kept");
+        assert(get(f.work / "previous" / id / "assets/roms/personal.bin") == "kept");
+        f.environment.interrupt = nullptr;
+        assert(install::recover(f.environment).ok);
+        assert(f.apply(request(f, "01.000.100")).ok && f.settled());
+        assert(get(data / "keys/personal.bin") == "kept" &&
+               get(data / "roms/personal.bin") == "kept");
+    }
     // A different filesystem must not leave an activated app with unmigrated data.
     if (fs::is_directory("/dev/shm"))
     {

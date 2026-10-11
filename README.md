@@ -119,8 +119,14 @@ The migration resumes through the update journal if it is interrupted.
 Store refuses the update before replacing the app if a destination holds files,
 a custom game-files folder is selected, settings cannot be read safely, or the
 migration would cross drives. Resolve the reported conflict or move the files
-to the chosen folder first. A previous Store backup that still holds legacy Eden
-data is never replaced by another update; recover those files first.
+to the chosen folder first.
+
+An update made with ProsperoStore 1.000.050 or older left those folders in the
+store's own `prosperostore/previous/PPSA99008/assets`, where ProsperoEden does
+not look. The next update of ProsperoEden moves them to `/data/prosperoeden` by
+the same rules, before that previous folder is replaced. If the same folder
+holds files both there and in the installed app, the update is refused and
+names both places: keep one of them, then update again.
 
 See [migration validation](docs/eden-migration-validation.md) for automated checks,
 controlled testing on an original/phat PS5 with firmware 4.50, and the reproducible
