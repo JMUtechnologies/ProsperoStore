@@ -122,6 +122,10 @@ migration would cross drives. Resolve the reported conflict or move the files
 to the chosen folder first. A previous Store backup that still holds legacy Eden
 data is never replaced by another update; recover those files first.
 
+See [migration validation](docs/eden-migration-validation.md) for automated checks,
+controlled testing on an original/phat PS5 with firmware 4.50, and the reproducible
+console test harness.
+
 ## Controls
 
 | Action | Controller | Keyboard |
