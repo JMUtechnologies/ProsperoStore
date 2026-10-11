@@ -298,6 +298,8 @@ struct Fixture
         environment.self = "PPSA99000";
         environment.work = work.string();
         environment.registered = (root / "user").string();
+        environment.data = (root / "data").string();
+        fs::create_directories(environment.data);
         environment.policy.roots = {location.string()};
         environment.now = [] { return std::string("2026-10-02T00:00:00Z"); };
         environment.wait = [](unsigned, const std::atomic<bool> &) {};
@@ -621,6 +623,141 @@ void check_transactions(const fs::path &base)
     assert(!install::recover(f.environment).ok);
     fs::remove(f.state / "journal.json");
     assert(install::recover(f.environment).ok);
+}
+
+// Legacy Eden data must remain discoverable across Store's whole-folder update.
+void check_eden_migration(const fs::path &base)
+{
+    const std::string id = "PPSA99008";
+    const auto request = [&](Fixture &f, const std::string &version)
+    {
+        auto r = f.request(version);
+        f.artifact = zip(app(version, id));
+        r.entry.id = id;
+        r.entry.digest = catalog::sha256(f.artifact);
+        r.entry.size = f.artifact.size();
+        return r;
+    };
+    const auto seed = [&](Fixture &f)
+    {
+        assert(f.apply(request(f, "01.000.080")).ok);
+        const auto assets = f.location / id / "assets";
+        for (const auto *folder :
+             {"keys", "firmware", "roms", "updates", "mods", "ryujinx", "save-import"})
+        {
+            fs::create_directories(assets / folder);
+            put(assets / folder / "personal.bin", std::string(folder) + " data");
+        }
+        const auto data = fs::path(f.environment.data) / "prosperoeden";
+        fs::create_directories(data / "config");
+        fs::create_directories(data / "user");
+        put(data / "user/save.bin", "keep my save");
+        put(data / "config/prosperoeden.json",
+            "{\"game_files\":\"" + data.string() + "\",\"audio\":{\"volume\":42}}");
+        // Eden may have already created empty default folders before updating.
+        fs::create_directories(data / "roms");
+    };
+    const auto check_data = [&](const Fixture &f)
+    {
+        const auto data = fs::path(f.environment.data) / "prosperoeden";
+        for (const auto *folder :
+             {"keys", "firmware", "roms", "updates", "mods", "ryujinx", "save-import"})
+            assert(get(data / folder / "personal.bin") == std::string(folder) + " data");
+        assert(get(data / "user/save.bin") == "keep my save");
+        assert(get(data / "config/prosperoeden.json").find("42") != std::string::npos);
+    };
+    {
+        Fixture f(base, "eden-migrate");
+        seed(f);
+        const auto config =
+            get(fs::path(f.environment.data) / "prosperoeden/config/prosperoeden.json");
+        const auto result = f.apply(request(f, "01.000.100"));
+        assert(result.ok && f.settled());
+        check_data(f);
+        assert(get(fs::path(f.environment.data) / "prosperoeden/config/prosperoeden.json") ==
+               config);
+        assert(!fs::exists(f.work / "previous" / id / "assets/roms"));
+        // Future updates do not touch migrated data or save files.
+        assert(f.apply(request(f, "01.000.110")).ok);
+        check_data(f);
+    }
+    for (const std::string issue : {"conflict", "custom", "bad-config", "link", "older-backup"})
+    {
+        Fixture f(base, "eden-refuse-" + issue);
+        seed(f);
+        const auto data = fs::path(f.environment.data) / "prosperoeden";
+        if (issue == "conflict")
+            put(data / "roms/existing.nsp", "do not replace");
+        else if (issue == "custom")
+            put(data / "config/prosperoeden.json", "{\"game_files\":\"/mnt/usb0/my-games\"}");
+        else if (issue == "bad-config")
+            put(data / "config/prosperoeden.json", "broken JSON");
+        else if (issue == "link")
+        {
+            fs::create_directories(f.root / "outside");
+            fs::create_directory_symlink(f.root / "outside", data / "keys");
+        }
+        else
+        {
+            fs::create_directories(f.work / "previous" / id / "assets/roms");
+            put(f.work / "previous" / id / "assets/roms/only-copy.nsp", "older user data");
+        }
+        const auto old_app = tree(f.location / id), old_data = tree(data);
+        const auto result = f.apply(request(f, "01.000.100"));
+        assert(!result.ok && !result.error.empty() && f.settled());
+        assert(tree(f.location / id) == old_app && tree(data) == old_data);
+        if (issue == "older-backup")
+            assert(get(f.work / "previous" / id / "assets/roms/only-copy.nsp") ==
+                   "older user data");
+    }
+    // A different filesystem must not leave an activated app with unmigrated data.
+    if (fs::is_directory("/dev/shm"))
+    {
+        Fixture f(base, "eden-cross-drive");
+        const auto other = fs::path("/dev/shm") / ("store-eden-" + std::to_string(getpid()));
+        fs::create_directories(other);
+        f.environment.data = other.string();
+        seed(f);
+        const auto old_app = tree(f.location / id);
+        const auto result = f.apply(request(f, "01.000.100"));
+        assert(!result.ok && result.error.find("different drives") != std::string::npos);
+        assert(tree(f.location / id) == old_app && f.settled());
+        fs::remove_all(other);
+    }
+    // A power cut between any two renames resumes under the existing swap journal.
+    for (const std::string cut : {"placed", "eden-moved-keys", "eden-moved-firmware",
+                                  "eden-moved-roms", "eden-moved-updates", "eden-moved-mods",
+                                  "eden-moved-ryujinx", "eden-moved-save-import", "recorded"})
+    {
+        Fixture f(base, "eden-cut-" + cut);
+        seed(f);
+        f.environment.interrupt = [&](const char *step) { return cut == step; };
+        const auto interrupted = f.apply(request(f, "01.000.100"));
+        assert(interrupted.interrupted && !interrupted.ok);
+        f.environment.interrupt = nullptr;
+        const auto recovered = install::recover(f.environment);
+        assert(recovered.ok && f.settled());
+        check_data(f);
+        assert(install::recover(f.environment).ok);
+        check_data(f);
+    }
+    // A conflict appearing after activation stops recovery with the backup intact.
+    {
+        Fixture f(base, "eden-recovery-conflict");
+        seed(f);
+        f.environment.interrupt = [](const char *step) { return std::string(step) == "placed"; };
+        assert(f.apply(request(f, "01.000.100")).interrupted);
+        f.environment.interrupt = nullptr;
+        const auto data = fs::path(f.environment.data) / "prosperoeden";
+        put(data / "roms/new.nsp", "new data");
+        assert(!install::recover(f.environment).ok);
+        assert(get(data / "roms/new.nsp") == "new data");
+        assert(get(f.work / "backup" / id / "assets/roms/personal.bin") == "roms data");
+        assert(fs::exists(f.state / "journal.json"));
+        fs::rename(data / "roms/new.nsp", f.root / "new.nsp");
+        assert(install::recover(f.environment).ok);
+        check_data(f);
+    }
 }
 
 // Stops dead at every step of every operation, as a power cut would, and
@@ -1042,6 +1179,7 @@ int main(int argc, char **argv)
     check_archives(root);
     check_running(root);
     check_transactions(root);
+    check_eden_migration(root);
     check_self_update(root);
     check_interruptions(root);
     if (argc > 1)
