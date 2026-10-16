@@ -19,7 +19,9 @@ if [[ -n ${PS5_OPENGL_PREFIX:-} ]]; then
         exit 2
     }
 else
-    prefix=$(bash "$root/tools/fetch-opengl-sdk.sh")
+    # setup-native-dependencies also reports its paths on stdout; fetch emits
+    # the SDK prefix last, so capture only that final line.
+    prefix=$(bash "$root/tools/fetch-opengl-sdk.sh" | tail -n 1)
 fi
 
 for required in include/EGL/egl.h include/GL/glcorearb.h include/ps5_opengl_display.h \
@@ -31,7 +33,7 @@ cache="$root/.deps/ps5-opengl"
 mkdir -p "$cache"
 ln -sfn -- "$prefix" "$cache/current"
 
-compiler=$(command -v "${PS5_CLANG:-clang-18}")
+compiler=$(command -v "${PS5_CLANG:-clang-18}" || command -v clang)
 builtins="$("$compiler" --print-resource-dir)/lib/linux/libclang_rt.builtins-x86_64.a"
 for library in "$sdk/target/lib/libunwind.a" "$sdk/target/lib/libc++abi.a" \
     "$sdk/target/lib/libc++.a" "$builtins"; do

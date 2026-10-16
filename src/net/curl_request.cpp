@@ -85,11 +85,16 @@ Response curl_request(const std::string &url, std::uint64_t limit, const Sink &s
     };
     const auto progress = +[](void *opaque, curl_off_t, curl_off_t, curl_off_t, curl_off_t) -> int
     { return static_cast<State *>(opaque)->control.cancelled.load() ? 1 : 0; };
-    std::string conditional = "If-None-Match: " + etag;
-    curl_slist *list = etag.empty() ? nullptr : curl_slist_append(nullptr, conditional.c_str());
+    curl_slist *list = curl_slist_append(nullptr, "Cache-Control: no-cache");
+    list = curl_slist_append(list, "Pragma: no-cache");
+    if (!etag.empty())
+    {
+        std::string conditional = "If-None-Match: " + etag;
+        list = curl_slist_append(list, conditional.c_str());
+    }
     std::unique_ptr<curl_slist, decltype(&curl_slist_free_all)> owned_headers(list,
                                                                               curl_slist_free_all);
-    if (!etag.empty() && !list)
+    if (!list)
     {
         out.error = "The request could not be created";
         return out;

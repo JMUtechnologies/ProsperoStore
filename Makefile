@@ -4,6 +4,7 @@
 
 SHELL := /bin/bash
 .DEFAULT_GOAL := app
+export PATH := $(CURDIR)/tools:$(PATH)
 
 -include .env
 
@@ -38,7 +39,11 @@ HOST_TEST_CFLAGS ?= -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
 	-ffunction-sections -fdata-sections
 HOST_TEST_CXXFLAGS ?= -std=c++20 -O2 -Wall -Wextra -Wpedantic -Werror \
 	-ffunction-sections -fdata-sections
+ifeq ($(shell uname -s),Darwin)
+HOST_TEST_LDFLAGS ?=
+else
 HOST_TEST_LDFLAGS ?= -Wl,--gc-sections
+endif
 GTEST_ARGS ?=
 BUILD_JOBS ?= $(shell nproc 2>/dev/null || echo 2)
 USE_CCACHE ?= 1
