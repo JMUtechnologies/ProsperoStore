@@ -7,7 +7,7 @@ set -euo pipefail
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 source "$root/tools/ninja-build.sh"
 gtest=$(bash "$root/tools/setup-test-dependencies.sh")
-cxx=$(command -v "${HOST_CXX:-clang++}")
+cxx=$(command -v "${HOST_CXX:-clang++}" || command -v clang++-18 || command -v clang++)
 build="$root/build/tests"
 ninja_begin "$build/build.ninja"
 read -r -a flags <<< "${HOST_TEST_CXXFLAGS:--std=c++20 -O2 -Wall -Wextra -Wpedantic -Werror -ffunction-sections -fdata-sections}"

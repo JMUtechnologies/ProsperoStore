@@ -38,12 +38,6 @@ done
 compiler=$(command -v clang-18 || command -v clang || true)
 archiver=$(command -v llvm-ar-18 || command -v llvm-ar || command -v ar || true)
 ranlib=$(command -v llvm-ranlib-18 || command -v llvm-ranlib || command -v ranlib || true)
-arflags=
-if [[ $(uname -s) == Darwin && $(basename "$archiver") != libtool ]]; then
-    # Apple configure selects libtool-style flags for the system archive tool.
-    # llvm-ar uses the conventional `rcs` operation flags instead.
-    arflags=rcs
-fi
 [[ -n $compiler && -n $archiver && -n $ranlib ]] || {
     echo "clang, an archive tool, and ranlib are required to build zlib" >&2
     exit 2
@@ -85,8 +79,7 @@ if [[ -z $zlib_library || ! -f $zlib_root/usr/include/zlib.h ||
     (
         cd "$zlib_source"
         CC="$compiler" AR="$archiver" RANLIB="$ranlib" ./configure --static --prefix=/usr
-        make -j "$jobs" CC="$compiler" AR="$archiver" RANLIB="$ranlib" \
-            ${arflags:+ARFLAGS="$arflags"}
+        make -j "$jobs" CC="$compiler" AR="$archiver" RANLIB="$ranlib"
         make DESTDIR="$zlib_root" install
     ) >"$zlib_directory/build.log"
     printf '%s\n' "$zlib_version" >"$zlib_stamp"

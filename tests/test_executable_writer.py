@@ -8,6 +8,7 @@
 # RELRO begins at the GOT. Both must convert, and every mapped load segment
 # must keep its 16 KiB file/address congruence. Skips without the toolchain.
 
+import os
 import shutil
 import struct
 import subprocess
@@ -94,10 +95,16 @@ class ExecutableWriterTests(unittest.TestCase):
                    NATIVE / "elf_object.cpp", NATIVE / "sce_module_writer.cpp"]
         command = [cls.cxx, "-std=c++20", "-O1", "-Wall", "-Wextra", "-Werror",
                    *map(str, sources), "-o", str(cls.tool)]
-        zlib_root = ROOT / ".deps" / "native" / "zlib" / "root"
-        archives = list(zlib_root.rglob("libz.a")) if zlib_root.exists() else []
-        if archives:
-            command[-2:-2] = ["-I", str(zlib_root / "usr" / "include"), str(archives[0])]
+        host_zlib = os.environ.get("HOST_ZLIB_ARCHIVE")
+        host_include = os.environ.get("HOST_ZLIB_INCLUDE")
+        candidates = [Path(host_zlib)] if host_zlib else [
+            Path("/usr/lib/x86_64-linux-gnu/libz.a"),
+            Path("/opt/homebrew/opt/zlib/lib/libz.a"),
+        ]
+        archive = next((p for p in candidates if p and p.is_file()), None)
+        if archive:
+            include = Path(host_include) if host_include else archive.parent.parent / "include"
+            command[-2:-2] = ["-I", str(include), str(archive)]
         else:
             command.insert(-2, "-lz")
         subprocess.run(command, check=True, capture_output=True, text=True)
